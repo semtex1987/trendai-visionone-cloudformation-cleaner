@@ -22,7 +22,7 @@
 #   • EventBridge rules + EventBridge Scheduler schedules/groups
 #   • SNS topics, SQS queues, Lambda layers, event-source mappings
 #
-# Run AFTER prelude_delete_cfn.sh has finished.
+#
 #
 # USAGE:
 #   DRY_RUN=true  ./nuke_all_trendmicro_aws_v1.3.sh   # default: see what would happen
