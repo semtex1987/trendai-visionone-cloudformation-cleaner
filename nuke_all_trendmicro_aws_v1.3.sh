@@ -450,17 +450,18 @@ process_region() {
   # 7. KMS aliases + schedule key deletion
   local ALIASES_JSON
   ALIASES_JSON=$($R kms list-aliases --query 'Aliases[].{Name:AliasName,Key:TargetKeyId}' --output json 2>/dev/null)
-  for ROW in $(echo "$ALIASES_JSON" | jq -c '.[]?' 2>/dev/null); do
+  while IFS= read -r ROW; do
+    [ -z "$ROW" ] && continue
     local ALIAS KEY
-    ALIAS=$(echo "$ROW" | jq -r '.Name')
-    KEY=$(echo   "$ROW" | jq -r '.Key // ""')
+    ALIAS=$(printf '%s\n' "$ROW" | jq -r '.Name')
+    KEY=$(printf '%s\n' "$ROW" | jq -r '.Key // ""')
     if match_any "$ALIAS" "${KMS_ALIAS_PATTERNS[@]}"; then
       dry "$TAG kms delete-alias $ALIAS" || { $R kms delete-alias --alias-name "$ALIAS" 2>/dev/null && log "KMSAlias" "$ALIAS" "$REGION" "Deleted"; }
       if [ -n "$KEY" ] && [ "$KEY" != "null" ]; then
         dry "$TAG kms schedule-key-deletion $KEY (7d)" || { $R kms schedule-key-deletion --key-id "$KEY" --pending-window-in-days 7 >/dev/null 2>&1 && log "KMSKey" "$KEY" "$REGION" "Scheduled7d"; }
       fi
     fi
-  done
+  done < <(printf '%s\n' "$ALIASES_JSON" | jq -c '.[]?' 2>/dev/null)
 
   # 8. EventBridge rules
   for BUS in default; do
