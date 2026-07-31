@@ -312,10 +312,12 @@ process_region() {
   # 2. Secrets Manager (replication-aware)
   local SECRETS_DATA
   SECRETS_DATA=$($R secretsmanager list-secrets --output json 2>/dev/null)
-  for SECRET in $(echo "$SECRETS_DATA" | jq -r '.SecretList[].Name' 2>/dev/null); do
+  while IFS= read -r SECRET; do
+    [ -z "$SECRET" ] && continue
     if ! match_any "$SECRET" "${SECRET_ROOTS[@]}"; then continue; fi
     local PRIMARY
-    PRIMARY=$(echo "$SECRETS_DATA" | jq -r ".SecretList[] | select(.Name==\"$SECRET\") | .PrimaryRegion // \"\"")
+    PRIMARY=$(printf '%s\n' "$SECRETS_DATA" |
+      jq -r --arg name "$SECRET" '.SecretList[] | select(.Name == $name) | .PrimaryRegion // ""')
     if [ -n "$PRIMARY" ] && [ "$PRIMARY" != "$REGION" ]; then
       echo "  $TAG [INFO] $SECRET is replica (primary=$PRIMARY), skipping"
       continue
@@ -327,7 +329,7 @@ process_region() {
     done
     $R secretsmanager delete-secret --secret-id "$SECRET" --force-delete-without-recovery >/dev/null 2>&1 \
       && log "SecretPrimary" "$SECRET" "$REGION" "Deleted"
-  done
+  done < <(printf '%s\n' "$SECRETS_DATA" | jq -r '.SecretList[]?.Name' 2>/dev/null)
 
   # 3. CloudWatch log groups
   for LG in $($R logs describe-log-groups --query 'logGroups[].logGroupName' --output text 2>/dev/null); do
