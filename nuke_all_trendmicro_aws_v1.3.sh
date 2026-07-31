@@ -346,11 +346,12 @@ process_region() {
   # 4b. Live EBS volumes (tag-filtered, only 'available' or detached)
   local VOLS
   VOLS=$($R ec2 describe-volumes --query 'Volumes[].{Id:VolumeId,State:State,Tags:Tags}' --output json 2>/dev/null)
-  for ROW in $(echo "$VOLS" | jq -c '.[]?' 2>/dev/null); do
+  while IFS= read -r ROW; do
+    [ -z "$ROW" ] && continue
     local VID STATE TAGS
-    VID=$(echo "$ROW" | jq -r '.Id')
-    STATE=$(echo "$ROW" | jq -r '.State')
-    TAGS=$(echo "$ROW" | jq -r '[.Tags[]?|.Value]|join(",")')
+    VID=$(printf '%s\n' "$ROW" | jq -r '.Id')
+    STATE=$(printf '%s\n' "$ROW" | jq -r '.State')
+    TAGS=$(printf '%s\n' "$ROW" | jq -r '[.Tags[]?|.Value]|join(",")')
     if match_any "$TAGS" "${EBS_TAG_PATTERNS[@]}"; then
       if [ "$STATE" = "available" ]; then
         dry "$TAG ec2 delete-volume $VID" || { $R ec2 delete-volume --volume-id "$VID" 2>/dev/null && log "EBSVolume" "$VID" "$REGION" "Deleted" "tags=$TAGS"; }
@@ -359,15 +360,16 @@ process_region() {
         log "EBSVolume" "$VID" "$REGION" "SkippedInUse" "state=$STATE"
       fi
     fi
-  done
+  done < <(printf '%s\n' "$VOLS" | jq -c '.[]?' 2>/dev/null)
 
   # 5. VPC dismantle
   local VPCS_JSON
   VPCS_JSON=$($R ec2 describe-vpcs --query "Vpcs[].{Id:VpcId,Tags:Tags}" --output json 2>/dev/null)
-  for V_ROW in $(echo "$VPCS_JSON" | jq -c '.[]?' 2>/dev/null); do
+  while IFS= read -r V_ROW; do
+    [ -z "$V_ROW" ] && continue
     local VID NAME HIT
-    VID=$(echo "$V_ROW" | jq -r '.Id')
-    NAME=$(echo "$V_ROW" | jq -r '[.Tags[]?|select(.Key=="Name")|.Value][0] // ""')
+    VID=$(printf '%s\n' "$V_ROW" | jq -r '.Id')
+    NAME=$(printf '%s\n' "$V_ROW" | jq -r '[.Tags[]?|select(.Key=="Name")|.Value][0] // ""')
     HIT=false
     for P in "${VPC_NAME_PATTERNS[@]}"; do [[ "$NAME" == "$P" || "$NAME" == "$P"* ]] && HIT=true; done
     if [ "$HIT" != true ]; then continue; fi
@@ -436,7 +438,7 @@ process_region() {
         && log "InternetGateway" "$IGW" "$REGION" "Deleted"
     done
     $R ec2 delete-vpc --vpc-id "$VID" 2>/dev/null && log "VPC" "$VID" "$REGION" "Deleted"
-  done
+  done < <(printf '%s\n' "$VPCS_JSON" | jq -c '.[]?' 2>/dev/null)
 
   # 6. CloudTrail trails
   for TRAIL in $($R cloudtrail list-trails --query 'Trails[].Name' --output text 2>/dev/null); do
